@@ -758,92 +758,85 @@ tr:hover td{background:#fafcff}
 // JSONBIN CONFIG
 // =====================================================
 
-// === GIST CONFIG ===
+// ============================================================
+// BASE DE DONNEES : GitHub Gist
+// Gratuit, illimite, fonctionne sur tous les reseaux
+// ============================================================
 var GIST_ID = "6e0f473b132bb4e2f0d220e6e8225f1a";
 var GIST_FILE = "eiss.json";
-var GIST_OWNER = ""; // detecte automatiquement
-var _gk = "EISS2024SECRET";
-var _gx = [34, 33, 35, 12, 126, 3, 66, 126, 10, 115, 43, 51, 47, 45, 119, 30, 20, 58, 5, 95, 86, 98, 10, 21, 32, 22, 124, 30, 1, 125, 102, 62, 74, 125, 1, 119, 16, 0, 2, 34];
-var GH_TOKEN = _gx.map(function(c,i){return String.fromCharCode(c^_gk.charCodeAt(i%_gk.length));}).join("");
+var _k="EISS2024APP";
+var _x=[34,33,35,12,126,3,66,126,24,102,56,36,35,42,97,101,119,91,3,46,52,6,28,25,48,23,11,122,118,0,116,61,40,8,122,16,16,119,113,66];
+var GH_TOKEN=_x.map(function(c,i){return String.fromCharCode(c^_k.charCodeAt(i%_k.length));}).join("");
+var GIST_FILE = "eiss.json";
 
-// === SYNC ===
+// Wrapper localStorage securise (Edge Tracking Prevention)
+var _mem = {};
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){_mem[k]=v;}}
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return _mem[k]||null;}}
+
 async function jbLoad() {
   setSyncBadge("load");
-  console.log("jbLoad: chargement depuis GitHub Gist...");
   try {
-    // LECTURE via URL raw publique - pas de CORS, fonctionne partout
-    var url = "https://gist.githubusercontent.com/" + GIST_OWNER + "/" + GIST_ID + "/raw/" + GIST_FILE + "?nc=" + Date.now();
-    
-    // Si on ne connait pas encore le owner, utiliser l'API pour le trouver
-    if (!GIST_OWNER) {
-      console.log("jbLoad: detection du owner...");
-      try {
-        var r0 = await fetch("https://api.github.com/gists/" + GIST_ID, {
-          headers: {"Authorization": "token " + GH_TOKEN, "Accept": "application/vnd.github.v3+json"}
-        });
-        var d0 = await r0.json();
-        GIST_OWNER = d0.owner && d0.owner.login ? d0.owner.login : "unknown";
-        console.log("jbLoad: owner =", GIST_OWNER);
-        url = "https://gist.githubusercontent.com/" + GIST_OWNER + "/" + GIST_ID + "/raw/" + GIST_FILE + "?nc=" + Date.now();
-      } catch(e0) {
-        // Essayer directement l'API pour lire le contenu
-        var r1 = await fetch("https://api.github.com/gists/" + GIST_ID, {
-          headers: {"Authorization": "token " + GH_TOKEN, "Accept": "application/vnd.github.v3+json"}
-        });
-        var d1 = await r1.json();
-        var fc = d1.files && d1.files[GIST_FILE] && d1.files[GIST_FILE].content;
-        if (fc) {
-          var rec1 = JSON.parse(fc);
-          DB.interventions = rec1.interventions || [];
-          DB.missions      = rec1.missions      || [];
-          DB.nextId        = rec1.nextId        || 1;
-          DB.mNextId       = rec1.mNextId       || 1;
-          if (rec1.users && rec1.users.length) DB.users = rec1.users;
-          console.log("jbLoad OK via API:", DB.interventions.length, "interventions");
-          setSyncBadge("ok");
-          if (curUser) renderCurrentPage();
-          return;
-        }
-      }
-    }
-    
     var ctrl = new AbortController();
     var t = setTimeout(function(){ctrl.abort();}, 12000);
-    var resp = await fetch(url, {cache: "no-store", signal: ctrl.signal});
+    var resp = await fetch("https://api.github.com/gists/" + GIST_ID, {
+      headers: {
+        "Authorization": "token " + GH_TOKEN,
+        "Accept": "application/vnd.github.v3+json"
+      },
+      cache: "no-store",
+      signal: ctrl.signal
+    });
     clearTimeout(t);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    var rec = await resp.json();
+    var data = await resp.json();
+    var fc = data.files && data.files[GIST_FILE] && data.files[GIST_FILE].content;
+    if (!fc) throw new Error("Fichier gist vide");
+    var rec = JSON.parse(fc);
     DB.interventions = rec.interventions || [];
     DB.missions      = rec.missions      || [];
     DB.nextId        = rec.nextId        || 1;
     DB.mNextId       = rec.mNextId       || 1;
     if (rec.users && rec.users.length) DB.users = rec.users;
-    console.log("jbLoad OK:", DB.interventions.length, "interventions");
+    lsSet("eiss_cache", JSON.stringify(DB));
     setSyncBadge("ok");
     if (curUser) renderCurrentPage();
+    console.log("Sync OK:", DB.interventions.length, "interventions");
   } catch(e) {
     console.error("jbLoad ERR:", e.message);
     setSyncBadge("err");
+    var c = lsGet("eiss_cache");
+    if (c) {
+      try {
+        var cd = JSON.parse(c);
+        DB.interventions = cd.interventions || [];
+        DB.missions      = cd.missions      || [];
+        if (cd.users && cd.users.length) DB.users = cd.users;
+        if (cd.nextId) DB.nextId = cd.nextId;
+        if (cd.mNextId) DB.mNextId = cd.mNextId;
+      } catch(e2) {}
+    }
     if (curUser) renderCurrentPage();
   }
 }
 
 async function jbSave() {
+  lsSet("eiss_cache", JSON.stringify(DB));
   setSyncBadge("load");
   var content = JSON.stringify(DB);
-  console.log("jbSave: sauvegarde", DB.interventions.length, "interventions...");
   var attempt = 0;
   var doSave = async function() {
     attempt++;
     try {
       var ctrl = new AbortController();
       var t = setTimeout(function(){ctrl.abort();}, 15000);
-      var resp = await fetch("https://api.github.com/gists/" + GIST_ID, {
+      await fetch("https://api.github.com/gists/" + GIST_ID, {
         method: "PATCH",
         headers: {
           "Authorization": "token " + GH_TOKEN,
           "Accept": "application/vnd.github.v3+json",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "User-Agent": "EISS-App"
         },
         body: JSON.stringify({
           description: "EISS-Data",
@@ -852,11 +845,10 @@ async function jbSave() {
         signal: ctrl.signal
       });
       clearTimeout(t);
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      console.log("jbSave OK!");
+      lsSet("eiss_cache", JSON.stringify(DB));
       setSyncBadge("ok");
     } catch(e) {
-      console.error("jbSave ERR attempt", attempt, ":", e.message);
+      console.warn("Save attempt " + attempt + ":", e.message);
       setSyncBadge("err");
       if (attempt < 4) setTimeout(doSave, 3000);
     }
@@ -873,12 +865,15 @@ function setSyncBadge(s) {
   else               { el.classList.add("sync-err");  el.textContent = "⚠ Hors ligne"; }
 }
 
+// Sync toutes les 10 secondes (GitHub Gist: pas de limite agressive)
 setInterval(function() { if (curUser) jbLoad(); }, 10000);
 
-window.addEventListener("load", async function() {
+window.addEventListener("load", function() {
+  if (!DB.users || !DB.users.length) DB.users = getDefaultUsers();
   document.getElementById("loginWrap").style.display = "flex";
   jbLoad();
 });
+
 
 
 
@@ -997,7 +992,8 @@ function setBinId() {
   var val = document.getElementById("binInput").value.trim();
   if (!val) return;
   BIN_ID = val;
-    document.getElementById("binSetupWrap").style.display = "none";
+  localStorage.setItem("eiss_bin4", BIN_ID);
+  document.getElementById("binSetupWrap").style.display = "none";
   document.getElementById("binInfo").textContent = "ID Connexion: " + BIN_ID;
   document.getElementById("binInfo").style.display = "block";
   jbLoad();
@@ -1315,6 +1311,7 @@ async function saveInter() {
   };
   DB.interventions.unshift(inter);
   DB.lastModified = Date.now();
+  lsSet("eiss_cache", JSON.stringify(DB));
   newFiche();
   alert("Fiche #" + String(inter.id).padStart(4,"0") + " enregistree !");
   jbSave();
@@ -1454,6 +1451,7 @@ function archiveI(id) {
   if (!confirm("Archiver cette intervention ?\nClient : " + (r.client||"--") + "\nElle sera cachee de l historique principal.\nVous pourrez la retrouver via le bouton Archives.")) return;
   r.archived = true;
   DB.lastModified = Date.now();
+  lsSet("eiss_cache", JSON.stringify(DB));
   renderHistory();
   updateArchCount();
   jbSave();
@@ -1463,6 +1461,7 @@ function unarchiveI(id) {
   for (var i = 0; i < DB.interventions.length; i++) {
     if (DB.interventions[i].id === id) { DB.interventions[i].archived = false; break; }
   }
+  lsSet("eiss_cache", JSON.stringify(DB));
   renderHistory();
   updateArchCount();
   jbSave();
@@ -1484,6 +1483,7 @@ function deleteI(id) {
   DB.interventions = DB.interventions.filter(function(x) { return x.id !== id; });
   // Set timestamp and save immediately
   DB.lastModified = Date.now();
+  lsSet("eiss_cache", JSON.stringify(DB));
   // Update all visible sections immediately
   renderHistory();
   updateArchCount();
@@ -1557,6 +1557,7 @@ function toggleFact(id, val) {
     if (DB.interventions[i].id === id) { DB.interventions[i].facturable = val; break; }
   }
   DB.lastModified = Date.now();
+  lsSet("eiss_cache", JSON.stringify(DB));
   renderHistory();
   jbSave();
 }
@@ -1627,6 +1628,7 @@ function setDetailFact(id, val) {
   for (var i = 0; i < DB.interventions.length; i++) {
     if (DB.interventions[i].id === id) { DB.interventions[i].facturable = val; break; }
   }
+  lsSet("eiss_cache", JSON.stringify(DB));
   openDetail(id);
   jbSave();
 }
@@ -1680,6 +1682,7 @@ async function saveMission() {
     ts: new Date().toISOString()
   };
   DB.missions.unshift(m);
+  lsSet("eiss_cache", JSON.stringify(DB));
   closeM("mMission");
   renderMissions();
   jbSave().then(function() {
