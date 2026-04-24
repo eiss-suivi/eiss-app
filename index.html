@@ -1315,7 +1315,6 @@ async function saveInter() {
   };
   DB.interventions.unshift(inter);
   DB.lastModified = Date.now();
-  );
   newFiche();
   alert("Fiche #" + String(inter.id).padStart(4,"0") + " enregistree !");
   jbSave();
@@ -1455,7 +1454,6 @@ function archiveI(id) {
   if (!confirm("Archiver cette intervention ?\nClient : " + (r.client||"--") + "\nElle sera cachee de l historique principal.\nVous pourrez la retrouver via le bouton Archives.")) return;
   r.archived = true;
   DB.lastModified = Date.now();
-  );
   renderHistory();
   updateArchCount();
   jbSave();
@@ -1465,7 +1463,6 @@ function unarchiveI(id) {
   for (var i = 0; i < DB.interventions.length; i++) {
     if (DB.interventions[i].id === id) { DB.interventions[i].archived = false; break; }
   }
-  );
   renderHistory();
   updateArchCount();
   jbSave();
@@ -1487,7 +1484,6 @@ function deleteI(id) {
   DB.interventions = DB.interventions.filter(function(x) { return x.id !== id; });
   // Set timestamp and save immediately
   DB.lastModified = Date.now();
-  );
   // Update all visible sections immediately
   renderHistory();
   updateArchCount();
@@ -1561,7 +1557,6 @@ function toggleFact(id, val) {
     if (DB.interventions[i].id === id) { DB.interventions[i].facturable = val; break; }
   }
   DB.lastModified = Date.now();
-  );
   renderHistory();
   jbSave();
 }
@@ -1632,7 +1627,6 @@ function setDetailFact(id, val) {
   for (var i = 0; i < DB.interventions.length; i++) {
     if (DB.interventions[i].id === id) { DB.interventions[i].facturable = val; break; }
   }
-  );
   openDetail(id);
   jbSave();
 }
@@ -1686,7 +1680,6 @@ async function saveMission() {
     ts: new Date().toISOString()
   };
   DB.missions.unshift(m);
-  );
   closeM("mMission");
   renderMissions();
   jbSave().then(function() {
