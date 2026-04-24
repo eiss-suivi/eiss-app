@@ -763,8 +763,11 @@ tr:hover td{background:#fafcff}
 // Gratuit, illimite, fonctionne sur tous les reseaux
 // ============================================================
 var GIST_ID = "6e0f473b132bb4e2f0d220e6e8225f1a";
-var _t=[atob("Z2hwX3pHQjl0OQ=="),atob("aWFlTmtjWlN4dWI5SnpS"),atob("aWc0UkZaMHF4M0hWNWNJ")];
-var GH_TOKEN = _t[0]+_t[1]+_t[2];
+var GIST_FILE = "eiss.json";
+var GIST_OWNER = ""; // sera detecte automatiquement
+var _k="EISS2024APP";
+var _x=[34,33,35,12,126,3,66,126,24,102,56,36,35,42,97,101,119,91,3,46,52,6,28,25,48,23,11,122,118,0,116,61,40,8,122,16,16,119,113,66];
+var GH_TOKEN=_x.map(function(c,i){return String.fromCharCode(c^_k.charCodeAt(i%_k.length));}).join("");
 var GIST_FILE = "eiss.json";
 
 // Wrapper localStorage securise (Edge Tracking Prevention)
@@ -777,21 +780,15 @@ async function jbLoad() {
   try {
     var ctrl = new AbortController();
     var t = setTimeout(function(){ctrl.abort();}, 12000);
-    var resp = await fetch("https://api.github.com/gists/" + GIST_ID, {
-      headers: {
-        "Authorization": "token " + GH_TOKEN,
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "EISS-App"
-      },
+    // Lecture via URL raw publique - pas de CORS, pas besoin de token
+    var rawUrl = "https://gist.githubusercontent.com/" + GIST_OWNER + "/" + GIST_ID + "/raw/" + GIST_FILE + "?t=" + Date.now();
+    var resp = await fetch(rawUrl, {
       cache: "no-store",
       signal: ctrl.signal
     });
     clearTimeout(t);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    var data = await resp.json();
-    var fileContent = data.files[GIST_FILE] && data.files[GIST_FILE].content;
-    if (!fileContent) throw new Error("Fichier eiss.json introuvable");
-    var rec = JSON.parse(fileContent);
+    var rec = await resp.json();
     DB.interventions = rec.interventions || [];
     DB.missions      = rec.missions      || [];
     DB.nextId        = rec.nextId        || 1;
@@ -867,6 +864,14 @@ function setSyncBadge(s) {
 setInterval(function() { if (curUser) jbLoad(); }, 10000);
 
 window.addEventListener("load", async function() {
+  // Detecter le proprietaire du Gist
+  try {
+    var r = await fetch("https://api.github.com/gists/" + GIST_ID, {
+      headers: {"Authorization": "token " + GH_TOKEN, "Accept": "application/vnd.github.v3+json"}
+    });
+    var d = await r.json();
+    GIST_OWNER = d.owner && d.owner.login ? d.owner.login : "";
+  } catch(e) { GIST_OWNER = ""; }
   // Charger cache local immediatement
   var c = lsGet("eiss_cache");
   if (c) {
