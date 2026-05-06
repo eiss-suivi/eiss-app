@@ -765,16 +765,27 @@ tr:hover td{background:#fafcff}
 var GIST_ID = "6e0f473b132bb4e2f0d220e6e8225f1a";
 var GIST_FILE = "eiss.json";
 var _k="EISS2024APP";
-var _x=[34,33,35,12,126,3,66,126,24,102,56,36,35,42,97,101,119,91,3,46,52,6,28,25,48,23,11,122,118,0,116,61,40,8,122,16,16,119,113,66];
+var _x=[34, 33, 35, 12, 120, 118, 87, 100, 27, 100, 29, 34, 11, 17, 23, 103, 124, 118, 101, 24, 9, 50, 39, 113, 0, 50, 117, 64, 106, 69, 32, 36, 1, 51, 120, 106, 53, 65, 97, 122];
 var GH_TOKEN=_x.map(function(c,i){return String.fromCharCode(c^_k.charCodeAt(i%_k.length));}).join("");
 var GIST_FILE = "eiss.json";
 
-// Wrapper localStorage securise (Edge Tracking Prevention)
+// ── STOCKAGE LOCAL SECURISE ──────────────────────────
 var _mem = {};
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){_mem[k]=v;}}
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return _mem[k]||null;}}
 
+// ── PROTECTION CONTRE LA RACE CONDITION ─────────────
+// Si jbLoad se declenche pendant un jbSave, il ecrase les nouvelles donnees
+// Ce flag bloque le chargement pendant une sauvegarde
+var _saveInProgress = false;
+var _saveTimestamp = 0;
+
 async function jbLoad() {
+  // Ne pas charger si une sauvegarde est en cours (evite d'ecraser les nouvelles donnees)
+  if (_saveInProgress) {
+    console.log("jbLoad: sauvegarde en cours, chargement reporte");
+    return;
+  }
   setSyncBadge("load");
   try {
     var ctrl = new AbortController();
@@ -793,6 +804,14 @@ async function jbLoad() {
     var fc = data.files && data.files[GIST_FILE] && data.files[GIST_FILE].content;
     if (!fc) throw new Error("Fichier gist vide");
     var rec = JSON.parse(fc);
+    // Verifier que le Gist contient bien nos dernieres donnees
+    // (compare le timestamp de sauvegarde)
+    var remoteTs = rec._savedAt || 0;
+    if (remoteTs < _saveTimestamp) {
+      console.log("jbLoad: Gist pas encore mis a jour, on attend...");
+      setSyncBadge("load");
+      return;
+    }
     DB.interventions = rec.interventions || [];
     DB.missions      = rec.missions      || [];
     DB.nextId        = rec.nextId        || 1;
@@ -801,10 +820,11 @@ async function jbLoad() {
     lsSet("eiss_cache", JSON.stringify(DB));
     setSyncBadge("ok");
     if (curUser) renderCurrentPage();
-    console.log("Sync OK:", DB.interventions.length, "interventions");
+    console.log("Sync OK:", DB.interventions.length, "interventions,", DB.missions.length, "missions");
   } catch(e) {
     console.error("jbLoad ERR:", e.message);
     setSyncBadge("err");
+    // Fallback: utiliser le cache local
     var c = lsGet("eiss_cache");
     if (c) {
       try {
@@ -821,6 +841,9 @@ async function jbLoad() {
 }
 
 async function jbSave() {
+  _saveInProgress = true;
+  _saveTimestamp = Date.now();
+  DB._savedAt = _saveTimestamp;
   lsSet("eiss_cache", JSON.stringify(DB));
   setSyncBadge("load");
   var content = JSON.stringify(DB);
@@ -830,13 +853,12 @@ async function jbSave() {
     try {
       var ctrl = new AbortController();
       var t = setTimeout(function(){ctrl.abort();}, 15000);
-      await fetch("https://api.github.com/gists/" + GIST_ID, {
+      var resp = await fetch("https://api.github.com/gists/" + GIST_ID, {
         method: "PATCH",
         headers: {
           "Authorization": "token " + GH_TOKEN,
           "Accept": "application/vnd.github.v3+json",
-          "Content-Type": "application/json",
-          "User-Agent": "EISS-App"
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
           description: "EISS-Data",
@@ -845,12 +867,19 @@ async function jbSave() {
         signal: ctrl.signal
       });
       clearTimeout(t);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
       lsSet("eiss_cache", JSON.stringify(DB));
       setSyncBadge("ok");
+      console.log("Save OK! missions:", DB.missions.length);
+      _saveInProgress = false;
     } catch(e) {
       console.warn("Save attempt " + attempt + ":", e.message);
-      setSyncBadge("err");
-      if (attempt < 4) setTimeout(doSave, 3000);
+      if (attempt < 4) {
+        setTimeout(doSave, 3000);
+      } else {
+        setSyncBadge("err");
+        _saveInProgress = false;
+      }
     }
   };
   doSave();
@@ -865,8 +894,8 @@ function setSyncBadge(s) {
   else               { el.classList.add("sync-err");  el.textContent = "⚠ Hors ligne"; }
 }
 
-// Sync toutes les 10 secondes (GitHub Gist: pas de limite agressive)
-setInterval(function() { if (curUser) jbLoad(); }, 10000);
+// Sync toutes les 15 secondes
+setInterval(function() { if (curUser && !_saveInProgress) jbLoad(); }, 15000);
 
 window.addEventListener("load", function() {
   if (!DB.users || !DB.users.length) DB.users = getDefaultUsers();
@@ -1685,10 +1714,8 @@ async function saveMission() {
   lsSet("eiss_cache", JSON.stringify(DB));
   closeM("mMission");
   renderMissions();
-  jbSave().then(function() {
-    setSyncBadge("ok");
-  });
   alert("Mission creee !");
+  jbSave();
 }
 
 function toggleMission(id) {
@@ -1705,8 +1732,8 @@ function toggleMission(id) {
 function deleteMission(id) {
   if (!confirm("Supprimer cette mission ?")) return;
   DB.missions = DB.missions.filter(function(m) { return m.id !== id; });
-  jbSave();
   renderMissions();
+  jbSave();
 }
 
 function renderMissions() {
