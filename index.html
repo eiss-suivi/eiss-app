@@ -240,6 +240,10 @@ tr:hover td{background:#fafcff}
   background:var(--surface);transition:all .18s}
 .mi:hover{border-color:rgba(22,163,74,.3);background:var(--g4);box-shadow:var(--sh)}
 .mi.done{opacity:.6;background:#f8fafc}
+.mi.mi-retour{border-color:#f59e0b!important;background:#fffbeb!important}
+.mi.mi-retour:hover{border-color:#d97706!important;background:#fef3c7!important}
+.badge.bg-r{background:#fee2e2;color:#b91c1c}
+.badge.bg-urg{background:#fef2f2;color:#991b1b;font-weight:700}
 .mi.done .mi-title{text-decoration:line-through;color:var(--text3)}
 .mi-check{width:22px;height:22px;border-radius:50%;border:2px solid var(--border2);
   display:flex;align-items:center;justify-content:center;cursor:pointer;
@@ -548,7 +552,7 @@ tr:hover td{background:#fafcff}
         <div style="height:90px"></div>
       </div>
       <div class="actbar" id="actbarFiche" style="display:none;position:sticky;bottom:0;z-index:10">
-        <button class="btn btn-primary" onclick="saveInter()">&#x1F4BE; Enregistrer</button>
+        <button class="btn btn-primary" onclick="demanderConfirmation()">&#x1F4BE; Enregistrer</button>
         <button class="btn btn-dark" onclick="newFiche()">+ Nouvelle fiche</button>
         <button class="btn btn-outline" onclick="window.print()">&#x1F5A8; Imprimer</button>
         <button class="btn btn-outline" onclick="alert('Utilisez Fichier > Imprimer > PDF')">&#x1F4C4; PDF</button>
@@ -719,11 +723,25 @@ tr:hover td{background:#fafcff}
       <div class="fg"><label class="flabel" id="mNumLbl">Numero</label>
         <input type="text" id="mNum" placeholder="Ex: DO-2024-001"/></div>
     </div>
-    <div class="fg"><label class="flabel">Description</label>
-      <textarea id="mDesc" placeholder="Decrire la mission..." style="min-height:80px"></textarea></div>
+    <div class="fg"><label class="flabel">Description / Observations</label>
+      <textarea id="mDesc" placeholder="Decrire la mission, observations importantes..." style="min-height:80px"></textarea></div>
+    <div class="fg2">
+      <div><label class="flabel">Technicien assigne</label>
+        <select id="mTech"><option value="">-- Non assigne --</option></select>
+      </div>
+      <div><label class="flabel">Priorite</label>
+        <select id="mPrio">
+          <option value="normale">Normale</option>
+          <option value="haute">Haute</option>
+          <option value="urgente">Urgente</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label class="flabel">Date prevue</label>
+      <input type="date" id="mDate"/></div>
     <div class="flex" style="justify-content:flex-end;gap:8px">
       <button class="btn btn-outline" onclick="closeM('mMission')">Annuler</button>
-      <button class="btn btn-primary" onclick="saveMission()">Creer la mission</button>
+      <button class="btn btn-primary" id="mSaveBtn" onclick="saveMission()">Creer la mission</button>
     </div>
   </div>
 </div>
@@ -1314,7 +1332,18 @@ function rmFile(i) {
   renderFileChips();
 }
 
-async function saveInter() {
+async function demanderConfirmation() {
+  var client = document.getElementById("cliSel").value;
+  var type   = document.getElementById("typeSel").value;
+  if (!client || !type) { saveInter(); return; }
+  openM("mConfirm");
+}
+function confirmerEnregistrement() {
+  closeM("mConfirm");
+  saveInter();
+}
+
+function saveInter() {
   var cr = document.getElementById("cliSel").value;
   var client = (cr === "__autre__") ? document.getElementById("cliMan").value.trim() : cr;
   var sr = document.getElementById("siteSel").value;
@@ -1336,11 +1365,13 @@ async function saveInter() {
     commentaire: document.getElementById("commentF").value,
     files: filesUploaded.map(function(f) { return {name:f.name, type:f.type, data:f.data||null, mime:f.mime||""}; }),
     technicien: curUser.name,
-    ts: new Date().toISOString()
+    ts: new Date().toISOString(),
+    missionId: (function() { var el=document.getElementById("pg-fiche"); return el.dataset.missionLiee ? parseInt(el.dataset.missionLiee) : null; })()
   };
   DB.interventions.unshift(inter);
   DB.lastModified = Date.now();
   lsSet("eiss_cache", JSON.stringify(DB));
+  lierInterventionMission(inter.id);
   newFiche();
   alert("Fiche #" + String(inter.id).padStart(4,"0") + " enregistree !");
   jbSave();
@@ -1566,9 +1597,24 @@ function renderHistory() {
           + '<button class="btn btn-danger btn-xs" onclick="deleteI(' + r.id + ')">&#x1F5D1; Supprimer</button>';
       }
     }
+    var missionBadge = "";
+    if (r.missionId) {
+      var mObj = null;
+      for (var mi=0;mi<DB.missions.length;mi++) { if (DB.missions[mi].id===r.missionId) { mObj=DB.missions[mi]; break; } }
+      var passageNum = 1;
+      if (mObj && mObj.interventionsLiees) {
+        for (var pi=0;pi<mObj.interventionsLiees.length;pi++) { if (mObj.interventionsLiees[pi]===r.id) { passageNum=pi+1; break; } }
+      }
+      var mColor = r.status==="done" ? "#16a34a" : "#d97706";
+      var mBg    = r.status==="done" ? "#f0fdf4"  : "#fffbeb";
+      missionBadge = '<div style="font-size:10px;color:' + mColor + ';background:' + mBg + ';border-radius:4px;padding:2px 6px;margin-top:3px;display:inline-block">'  
+        + (passageNum > 1 ? "Passage " + passageNum : "Passage 1")
+        + (r.status!=="done" ? " — Suite a venir" : " — Cloture")
+        + '</div>';
+    }
     var tr = document.createElement("tr");
     tr.innerHTML = '<td class="mono">' + dFr + '</td>'
-      + '<td style="font-weight:600">' + r.client + '</td>'
+      + '<td style="font-weight:600">' + r.client + (missionBadge ? "<br>" + missionBadge : "") + '</td>'
       + '<td style="color:var(--text2);font-size:12px">' + (r.site||"--") + '</td>'
       + '<td>' + tBadge + '</td>'
       + '<td class="mono">' + (r.numRef||"--") + '</td>'
@@ -1627,6 +1673,34 @@ function openDetail(id) {
     filesHtml = '<div style="margin-top:14px"><div class="flabel" style="margin-bottom:8px">Pieces jointes (' + r.files.length + ')</div><div class="chips" style="flex-direction:column">' + chips + '</div></div>';
   }
   var obsHtml = r.commentaire ? '<div class="obs-box">' + r.commentaire.replace(/\n/g,"<br>") + '</div>' : "";
+  var passagesHtml = "";
+  if (r.missionId) {
+    var mObj2 = null;
+    for (var mi2=0;mi2<DB.missions.length;mi2++) { if (DB.missions[mi2].id===r.missionId) { mObj2=DB.missions[mi2]; break; } }
+    if (mObj2 && mObj2.interventionsLiees && mObj2.interventionsLiees.length > 1) {
+      passagesHtml = '<div style="margin-top:16px;padding:12px 14px;background:#f0fdf4;border:1.5px solid #16a34a;border-radius:8px">';
+      passagesHtml += '<div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:8px">&#x1F4CB; Passages de cette mission (' + mObj2.client + ")" + '</div>';
+      for (var pi2=0;pi2<mObj2.interventionsLiees.length;pi2++) {
+        var lid = mObj2.interventionsLiees[pi2];
+        var linked = null;
+        for (var li2=0;li2<DB.interventions.length;li2++) { if (DB.interventions[li2].id===lid) { linked=DB.interventions[li2]; break; } }
+        if (!linked) continue;
+        var isCurrent = (linked.id === r.id);
+        var lBg = isCurrent ? "#dcfce7" : "#fff";
+        var lBorder = isCurrent ? "#16a34a" : "#e2e8f0";
+        passagesHtml += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;border:1px solid ' + lBorder + ';background:' + lBg + ';margin-bottom:4px">';
+        passagesHtml += '<span style="font-size:11px;font-weight:700;color:#64748b">Passage ' + (pi2+1) + '</span>';
+        passagesHtml += '<span style="font-size:12px;color:#334155">' + (linked.date||"") + '</span>';
+        passagesHtml += '<span style="font-size:12px;color:#334155">' + linked.temps + '</span>';
+        if (linked.status==="done") passagesHtml += '<span class="badge bg-g" style="font-size:10px">Terminee</span>';
+        else passagesHtml += '<span class="badge bg-o" style="font-size:10px">Non terminee</span>';
+        if (isCurrent) passagesHtml += '<span style="font-size:10px;color:#16a34a;font-weight:600;margin-left:auto">← Actuelle</span>';
+        else passagesHtml += '<button class="btn btn-outline btn-xs" style="margin-left:auto" onclick="openDetail(' + linked.id + ')">Voir</button>';
+        passagesHtml += '</div>';
+      }
+      passagesHtml += '</div>';
+    }
+  }
   document.getElementById("detailBody").innerHTML =
     '<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">'
     + '<span class="id-tag">#' + String(r.id).padStart(4,"0") + '</span>'
@@ -1645,7 +1719,7 @@ function openDetail(id) {
     + '<span class="dk">Duree</span><span class="dv" style="font-size:18px;font-weight:700;color:var(--g1);font-family:monospace">' + r.temps + '</span>'
     + '<span class="dk">Technicien</span><span class="dv">' + (r.technicien||"--") + '</span>'
     + '</div>'
-    + obsHtml + filesHtml + facHtml;
+    + passagesHtml + obsHtml + filesHtml + facHtml;
   document.getElementById("detailActs").innerHTML =
     '<button class="btn btn-outline btn-sm" onclick="window.print()">Imprimer</button>'
     + '<div class="ml-a"></div>'
@@ -1688,17 +1762,88 @@ function onMTypeChange() {
   else grp.style.display = "none";
 }
 
-function openMissionModal() {
+function openMissionModal(editId) {
+  // Reset
   ["mCli","mType","mNum","mDesc"].forEach(function(id) { document.getElementById(id).value = ""; });
   document.getElementById("mSite").innerHTML = '<option value="">-- Selectionner --</option>';
   document.getElementById("mNumGrp").style.display = "none";
+  if (document.getElementById("mDate")) document.getElementById("mDate").value = "";
+  if (document.getElementById("mPrio")) document.getElementById("mPrio").value = "normale";
+  // Peupler liste techniciens
+  var techEl = document.getElementById("mTech");
+  if (techEl) {
+    techEl.innerHTML = '<option value="">-- Non assigne --</option>';
+    var techs = DB.users.filter(function(u) { return u.active && u.role === "technicien"; });
+    techs.forEach(function(u) {
+      var opt = document.createElement("option");
+      opt.value = u.name; opt.textContent = u.name;
+      techEl.appendChild(opt);
+    });
+  }
+  var modal = document.getElementById("mMission");
+  var titleEl = modal.querySelector(".modal-title");
+  var saveBtn = document.getElementById("mSaveBtn");
+  if (editId) {
+    modal.dataset.editId = String(editId);
+    if (titleEl) titleEl.textContent = "Modifier la mission";
+    if (saveBtn) saveBtn.textContent = "Enregistrer les modifications";
+    var m = null;
+    for (var i=0;i<DB.missions.length;i++) { if (DB.missions[i].id===editId) { m=DB.missions[i]; break; } }
+    if (m) {
+      document.getElementById("mCli").value = m.client || "";
+      onMCliChange();
+      setTimeout(function() {
+        document.getElementById("mSite").value = m.site || "";
+      }, 60);
+      document.getElementById("mType").value = m.type || "";
+      onMTypeChange();
+      document.getElementById("mDesc").value = m.desc || "";
+      if (m.num) document.getElementById("mNum").value = m.num;
+      if (techEl) techEl.value = m.technicienAssigne || "";
+      if (document.getElementById("mPrio")) document.getElementById("mPrio").value = m.priorite || "normale";
+      if (document.getElementById("mDate")) document.getElementById("mDate").value = m.datePrevue || "";
+    }
+  } else {
+    modal.dataset.editId = "";
+    if (titleEl) titleEl.textContent = "Creer une mission";
+    if (saveBtn) saveBtn.textContent = "Creer la mission";
+  }
   openM("mMission");
 }
 
-async function saveMission() {
+function saveMission() {
   var type = document.getElementById("mType").value;
   var client = document.getElementById("mCli").value;
   if (!type || !client) { alert("Client et type requis."); return; }
+  var techEl = document.getElementById("mTech");
+  var modal = document.getElementById("mMission");
+  var editId = modal.dataset.editId ? parseInt(modal.dataset.editId) : 0;
+  if (editId) {
+    // MODE MODIFICATION
+    for (var i=0;i<DB.missions.length;i++) {
+      if (DB.missions[i].id === editId) {
+        DB.missions[i].client = client;
+        DB.missions[i].site = document.getElementById("mSite").value;
+        DB.missions[i].type = type;
+        DB.missions[i].num = document.getElementById("mNum").value.trim() || null;
+        DB.missions[i].desc = document.getElementById("mDesc").value;
+        DB.missions[i].technicienAssigne = techEl ? techEl.value : "";
+        DB.missions[i].priorite = document.getElementById("mPrio") ? document.getElementById("mPrio").value : "normale";
+        DB.missions[i].datePrevue = document.getElementById("mDate") ? document.getElementById("mDate").value : "";
+        DB.missions[i].modifiedBy = curUser.name;
+        DB.missions[i].modifiedAt = new Date().toISOString();
+        break;
+      }
+    }
+    modal.dataset.editId = "";
+    lsSet("eiss_cache", JSON.stringify(DB));
+    closeM("mMission");
+    renderMissions();
+    alert("Mission modifiee !");
+    jbSave();
+    return;
+  }
+  // MODE CREATION
   var m = {
     id: DB.mNextId++,
     client: client,
@@ -1706,7 +1851,12 @@ async function saveMission() {
     type: type,
     num: document.getElementById("mNum").value.trim() || null,
     desc: document.getElementById("mDesc").value,
+    technicienAssigne: techEl ? techEl.value : "",
+    priorite: document.getElementById("mPrio") ? document.getElementById("mPrio").value : "normale",
+    datePrevue: document.getElementById("mDate") ? document.getElementById("mDate").value : "",
     status: "pending",
+    retourNecessaire: false,
+    interventionsLiees: [],
     createdBy: curUser.name,
     ts: new Date().toISOString()
   };
@@ -1729,6 +1879,62 @@ function toggleMission(id) {
   renderMissions();
 }
 
+function ouvrirFicheDepuisMission(missionId) {
+  var mission = null;
+  for (var i=0;i<DB.missions.length;i++) { if (DB.missions[i].id===missionId) { mission=DB.missions[i]; break; } }
+  if (!mission) return;
+  showPage("pg-fiche");
+  var cliSel = document.getElementById("cliSel");
+  if (cliSel) { cliSel.value = mission.client || ""; onClientChange(); }
+  setTimeout(function() {
+    var siteSel = document.getElementById("siteSel");
+    if (siteSel && mission.site) { siteSel.value = mission.site; onSiteChange(); }
+    var adrField = document.getElementById("adrField");
+    if (adrField && mission.site && CLIENTS[mission.client] && CLIENTS[mission.client][mission.site]) {
+      adrField.value = CLIENTS[mission.client][mission.site];
+    }
+    var typeSel = document.getElementById("typeSel");
+    if (typeSel && mission.type) { typeSel.value = mission.type; onTypeChange(); }
+    var commentF = document.getElementById("commentF");
+    if (commentF && mission.desc) { commentF.value = "[Mission: " + mission.desc + "]\n"; }
+    document.getElementById("pg-fiche").dataset.missionLiee = String(missionId);
+    var old = document.getElementById("missionBanner");
+    if (old) old.remove();
+    var banner = document.createElement("div");
+    banner.id = "missionBanner";
+    banner.style.cssText = "background:#f0fdf4;border:1.5px solid #16a34a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#15803d;font-weight:600;display:flex;align-items:center;gap:8px";
+    banner.innerHTML = "&#x1F4CB; Mission liee : <span style='font-weight:400;color:#333'>"
+      + mission.client + (mission.site ? " — " + mission.site : "") + "</span>"
+      + "<span style='margin-left:auto;font-size:11px;font-weight:400;color:#888'>Completez les heures, etat et observations</span>";
+    var firstCard = document.querySelector("#pg-fiche .card");
+    if (firstCard) firstCard.parentNode.insertBefore(banner, firstCard);
+  }, 80);
+}
+
+function lierInterventionMission(interId) {
+  var ficheEl = document.getElementById("pg-fiche");
+  var mId = ficheEl.dataset.missionLiee ? parseInt(ficheEl.dataset.missionLiee) : 0;
+  if (!mId) return;
+  for (var i=0;i<DB.missions.length;i++) {
+    if (DB.missions[i].id === mId) {
+      if (!DB.missions[i].interventionsLiees) DB.missions[i].interventionsLiees = [];
+      DB.missions[i].interventionsLiees.push(interId);
+      var inter = null;
+      for (var j=0;j<DB.interventions.length;j++) { if (DB.interventions[j].id===interId) { inter=DB.interventions[j]; break; } }
+      if (inter && inter.status === "done") {
+        DB.missions[i].status = "done";
+        DB.missions[i].retourNecessaire = false;
+      } else {
+        DB.missions[i].retourNecessaire = true;
+      }
+      break;
+    }
+  }
+  ficheEl.dataset.missionLiee = "";
+  var banner = document.getElementById("missionBanner");
+  if (banner) banner.remove();
+}
+
 function deleteMission(id) {
   if (!confirm("Supprimer cette mission ?")) return;
   DB.missions = DB.missions.filter(function(m) { return m.id !== id; });
@@ -1737,38 +1943,96 @@ function deleteMission(id) {
 }
 
 function renderMissions() {
+  var isAdmin = curUser && (curUser.role === "admin" || curUser.role === "tech");
+  var isTech  = curUser && curUser.role === "technicien";
   var ft = document.getElementById("mFT") ? document.getElementById("mFT").value : "";
   var fsEl = document.getElementById("mFS");
   var fs = fsEl ? fsEl.value : "pending";
-  var canCreate = (curUser && (curUser.role === "admin" || curUser.role === "tech"));
   var wrap = document.getElementById("btnNewMission");
-  if (wrap) wrap.innerHTML = canCreate ? '<button class="btn btn-primary" onclick="openMissionModal()">+ Nouvelle mission</button>' : "";
+  if (wrap) wrap.innerHTML = isAdmin
+    ? '<button class="btn btn-primary" onclick="openMissionModal()">+ Nouvelle mission</button>'
+    : "";
   var rows = DB.missions.slice();
+  // Technicien : uniquement SES missions
+  if (isTech) {
+    rows = rows.filter(function(m) {
+      return !m.technicienAssigne || m.technicienAssigne === curUser.name;
+    });
+  }
   if (ft) rows = rows.filter(function(m) { return m.type === ft; });
-  if (fs) rows = rows.filter(function(m) { return m.status === fs; });
-  rows.sort(function(a,b) { return a.status === "done" ? 1 : b.status === "done" ? -1 : 0; });
+  if (fs === "pending") rows = rows.filter(function(m) { return m.status !== "done"; });
+  else if (fs === "done") rows = rows.filter(function(m) { return m.status === "done"; });
+  // Tri : urgentes d'abord
+  rows.sort(function(a,b) {
+    if (a.status==="done" && b.status!=="done") return 1;
+    if (b.status==="done" && a.status!=="done") return -1;
+    var p = {urgente:0,haute:1,normale:2};
+    return (p[a.priorite||"normale"]||2) - (p[b.priorite||"normale"]||2);
+  });
   var el = document.getElementById("missionsList");
   el.innerHTML = "";
   if (!rows.length) {
-    el.innerHTML = '<div class="empty"><div style="font-size:32px;margin-bottom:8px">📋</div><div style="font-size:14px;font-weight:500;color:var(--text2)">Aucune mission</div></div>';
+    el.innerHTML = '<div class="empty"><div style="font-size:32px;margin-bottom:8px">&#x1F4CB;</div>'
+      + '<div style="font-size:14px;font-weight:500;color:var(--text2)">'
+      + (isTech ? "Aucune mission assignee" : "Aucune mission") + '</div></div>';
     return;
   }
-  var canEdit = (curUser && (curUser.role === "admin" || curUser.role === "tech"));
-  for (var i = 0; i < rows.length; i++) {
+  for (var i=0;i<rows.length;i++) {
     var m = rows[i];
+    var isDone = m.status === "done";
     var div = document.createElement("div");
-    div.className = "mi" + (m.status === "done" ? " done" : "");
+    var cls = "mi";
+    if (isDone) cls += " done";
+    if (m.retourNecessaire && !isDone) cls += " mi-retour";
+    div.className = cls;
     var tBadge = '<span class="badge ' + (TYPE_BADGE[m.type]||"bg-gray") + '">' + m.type + '</span>';
     var numBadge = m.num ? '<span class="badge bg-b">' + m.num + '</span>' : "";
-    var stBadge = m.status === "done" ? '<span class="badge bg-g">Terminee</span>' : '<span class="badge bg-o">En attente</span>';
-    var delBtn = canEdit ? '<button class="btn btn-danger btn-xs" onclick="deleteMission(' + m.id + ')" style="flex-shrink:0">Suppr.</button>' : "";
-    div.innerHTML = '<div style="display:none"></div>'
-      + '<div style="flex:1">'
-      + '<div class="mi-title">' + m.client + (m.site ? " - " + m.site : "") + '</div>'
-      + (m.desc ? '<div class="mi-desc">' + m.desc + '</div>' : '')
-      + '<div class="mi-meta">' + tBadge + numBadge + stBadge + '<span class="badge bg-gray">Par ' + m.createdBy + '</span></div>'
+    var prioBadge = m.priorite === "urgente"
+      ? '<span class="badge bg-urg">URGENT</span>'
+      : m.priorite === "haute" ? '<span class="badge bg-o">Priorite haute</span>' : "";
+    var stBadge = isDone
+      ? '<span class="badge bg-g">Terminee</span>'
+      : (m.retourNecessaire
+          ? '<span class="badge bg-r">&#x1F504; Retour necessaire</span>'
+          : '<span class="badge bg-o">En attente</span>');
+    var techBadge = m.technicienAssigne
+      ? '<span class="badge bg-gray">&#x1F477; ' + m.technicienAssigne + '</span>' : "";
+    var dateBadge = m.datePrevue
+      ? '<span class="badge bg-gray">&#x1F4C5; ' + m.datePrevue + '</span>' : "";
+    var lieesCount = (m.interventionsLiees && m.interventionsLiees.length) ? m.interventionsLiees.length : 0;
+    var lieesBadge = lieesCount
+      ? '<span class="badge bg-p">&#x1F4CE; ' + lieesCount + ' passage(s)</span>' : "";
+    // Boutons selon role
+    var btns = "";
+    if (isAdmin) {
+      btns += '<button class="btn btn-sm" style="background:var(--g1);color:#fff;margin-bottom:4px" '
+        + 'onclick="openMissionModal(' + m.id + ')">&#x270F; Modifier</button>';
+      btns += '<button class="btn btn-danger btn-xs" onclick="deleteMission(' + m.id + ')">Suppr.</button>';
+    }
+    if (isTech && !isDone) {
+      btns += '<button class="btn btn-primary btn-sm" onclick="ouvrirFicheDepuisMission(' + m.id + ')">'
+        + '&#x1F4DD; Saisir intervention</button>';
+    }
+    // Passages lies (admin seulement)
+    var liensHtml = "";
+    if (lieesCount && isAdmin) {
+      liensHtml = '<div style="margin-top:6px;font-size:11px;color:var(--text3)">';
+      for (var j=0;j<m.interventionsLiees.length;j++) {
+        var lid = m.interventionsLiees[j];
+        var inter = null;
+        for (var k=0;k<DB.interventions.length;k++) { if (DB.interventions[k].id===lid) { inter=DB.interventions[k]; break; } }
+        if (inter) liensHtml += '&#x2192; Fiche #' + String(inter.id).padStart(4,"0") + ' (' + inter.date + ') ' + (inter.status==="done"?"Terminee":"Non terminee") + ' &nbsp;';
+      }
+      liensHtml += '</div>';
+    }
+    div.innerHTML = '<div style="flex:1">'
+      + '<div class="mi-title">' + m.client + (m.site ? " — " + m.site : "") + '</div>'
+      + (m.desc ? '<div class="mi-desc">' + m.desc + '</div>' : "")
+      + '<div class="mi-meta">' + tBadge + numBadge + prioBadge + stBadge + techBadge + dateBadge + lieesBadge
+        + '<span class="badge bg-gray">Par ' + m.createdBy + '</span></div>'
+      + liensHtml
       + '</div>'
-      + delBtn;
+      + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">' + btns + '</div>';
     el.appendChild(div);
   }
 }
@@ -1958,5 +2222,19 @@ document.querySelectorAll(".modal-bg").forEach(function(m) {
 
 
 </script>
+<!-- MODAL CONFIRMATION -->
+<div class="modal-bg" id="mConfirm">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-hd"><span class="modal-title">Confirmation</span></div>
+    <div style="padding:20px 0 8px;font-size:15px;color:var(--text1);line-height:1.6">
+      Etes-vous sur de vouloir enregistrer cette intervention ?<br>
+      <span style="font-size:13px;color:var(--text3)">Verifiez que toutes les informations sont correctes avant validation.</span>
+    </div>
+    <div class="flex" style="justify-content:flex-end;gap:10px;margin-top:18px">
+      <button class="btn btn-outline" onclick="closeM('mConfirm')">Annuler</button>
+      <button class="btn btn-primary" onclick="confirmerEnregistrement()">&#x2713; Confirmer</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
