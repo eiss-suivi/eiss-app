@@ -562,7 +562,7 @@ tr:hover td{background:#fafcff}
       <!-- PAGE MISSIONS -->
       <div class="pg" id="pg-missions">
         <div class="pg-header">
-          <div class="pg-title">Missions a realiser</div>
+          <div class="pg-title">Liste des interventions a realiser</div>
           <div id="btnNewMission"></div>
         </div>
         <div class="fbar">
@@ -654,6 +654,26 @@ tr:hover td{background:#fafcff}
       </div>
 
       <!-- PAGE USERS -->
+
+      <!-- PAGE DOSSIERS -->
+      <div class="pg" id="pg-dossiers">
+        <div class="pg-header">
+          <div class="pg-title">Gestion des dossiers</div>
+          <button class="btn btn-primary" id="btnNewDossierStatic" onclick="openDossierModal()">+ Nouveau dossier</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <input type="text" id="dosSearch" placeholder="&#128269; Rechercher un dossier..." oninput="renderDossiers()" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--rsm);font-size:13px"/>
+          <select id="dosFilterStatus" onchange="renderDossiers()" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--rsm);font-size:13px">
+            <option value="">Tous les statuts</option>
+            <option value="en-attente">En attente</option>
+            <option value="en-cours">En cours</option>
+            <option value="termine">Termine</option>
+          </select>
+        </div>
+        <div id="dossiersList"><div class="empty"><div style="font-size:32px;margin-bottom:8px">&#x1F4C2;</div><div>Aucun dossier — cliquez sur + Nouveau dossier</div></div></div>
+      </div>
+
+
       <div class="pg" id="pg-users">
         <div class="pg-header">
           <div class="pg-title">Gestion des utilisateurs</div>
@@ -982,26 +1002,28 @@ var ROLES = {
 };
 
 var ROLE_PAGES = {
-  "admin": ["pg-missions","pg-history","pg-stats","pg-users"],
-  "tech": ["pg-missions","pg-history","pg-stats"],
-  "admin-rh": ["pg-history","pg-stats"],
-  "technicien": ["pg-fiche","pg-missions","pg-history"]
+  "admin":     ["pg-dossiers","pg-missions","pg-history","pg-stats","pg-users"],
+  "tech":      ["pg-dossiers","pg-missions","pg-history","pg-stats"],
+  "admin-rh":  ["pg-dossiers","pg-history","pg-stats"],
+  "technicien":["pg-fiche","pg-missions","pg-history"]
 };
 
 var NAV_ITEMS = {
   "pg-fiche": {icon:"📋", label:"Nouvelle fiche"},
-  "pg-missions": {icon:"📌", label:"Missions"},
+  "pg-missions": {icon:"📌", label:"Liste des interventions"},
   "pg-history": {icon:"📁", label:"Historique"},
   "pg-stats": {icon:"📊", label:"Statistiques"},
+  "pg-dossiers": {icon:"📂", label:"Dossiers"},
   "pg-users": {icon:"👥", label:"Utilisateurs"}
 };
 
 var PAGE_TITLES = {
-  "pg-fiche": "Nouvelle intervention",
-  "pg-missions": "Missions",
-  "pg-history": "Historique",
-  "pg-stats": "Statistiques",
-  "pg-users": "Utilisateurs"
+  "pg-fiche":    "Nouvelle intervention",
+  "pg-missions": "Liste des interventions",
+  "pg-history":  "Historique",
+  "pg-stats":    "Statistiques",
+  "pg-users":    "Gestion des utilisateurs",
+  "pg-dossiers": "Gestion des dossiers"
 };
 
 var TYPE_BADGE = {
@@ -1194,7 +1216,17 @@ function showPage(pgId) {
   curPage = pgId;
   var ni = document.getElementById("nav-" + pgId);
   if (ni) ni.classList.add("active");
-  document.getElementById("tbTitle").textContent = PAGE_TITLES[pgId] || pgId;
+  // Ne pas ecraser le titre si on revient sur pg-fiche avec mission liee
+  if (pgId === "pg-fiche") {
+    var ficheEl = document.getElementById("pg-fiche");
+    var mLiee = ficheEl && ficheEl.dataset.missionLiee;
+    if (!mLiee) {
+      document.getElementById("tbTitle").textContent = "Nouvelle intervention";
+    }
+    // Si mission liée, le titre a déjà été défini par ouvrirFicheDepuisMission
+  } else {
+    document.getElementById("tbTitle").textContent = PAGE_TITLES[pgId] || pgId;
+  }
   document.getElementById("tbSub").textContent = "";
   var pill = document.getElementById("tbPill");
   var ab = document.getElementById("actbarFiche");
@@ -1210,6 +1242,7 @@ function showPage(pgId) {
   if (pgId === "pg-history") { renderHistory(); if (curUser && curUser.role === "admin") updateArchCount(); }
   if (pgId === "pg-stats") renderStats();
   if (pgId === "pg-missions") renderMissions();
+  if (pgId === "pg-dossiers") renderDossiers();
   if (pgId === "pg-users") renderUsers();
 }
 
@@ -1387,6 +1420,20 @@ function newFiche() {
   document.getElementById("cliManGrp").style.display = "none";
   document.getElementById("refGrp").style.display = "none";
   document.getElementById("cliMan").value = "";
+  // Déverrouiller le N° dossier (fiche vierge = point 3)
+  var refSel = document.getElementById("refSel");
+  if (refSel) {
+    refSel.disabled = false;
+    refSel.style.background = "";
+    refSel.style.color = "";
+    refSel.style.cursor = "";
+    refSel.dataset.lockedMission = "";
+  }
+  // Titre fiche vierge (point 2 cas 3)
+  document.getElementById("tbTitle").textContent = "Nouvelle intervention";
+  document.getElementById("pg-fiche").dataset.missionLiee = "";
+  var banner = document.getElementById("missionBanner");
+  if (banner) banner.remove();
   filesUploaded = [];
   setStatus("done");
   document.getElementById("dateF").value = new Date().toISOString().split("T")[0];
@@ -1783,6 +1830,39 @@ function openMissionModal(editId) {
   var modal = document.getElementById("mMission");
   var titleEl = modal.querySelector(".modal-title");
   var saveBtn = document.getElementById("mSaveBtn");
+  // Peupler dossiers dans le champ num
+  var numEl = document.getElementById("mNum");
+  if (numEl && DB.dossiers && DB.dossiers.length) {
+    // Remplacer l input par un datalist pour garder saisie manuelle
+    numEl.setAttribute("list", "dossierDatalist");
+    var dl = document.getElementById("dossierDatalist");
+    if (!dl) {
+      dl = document.createElement("datalist");
+      dl.id = "dossierDatalist";
+      numEl.parentNode.appendChild(dl);
+    }
+    dl.innerHTML = "";
+    DB.dossiers.forEach(function(d) {
+      var o = document.createElement("option");
+      o.value = d.num;
+      o.label = d.num + " — " + d.client + (d.site ? " / " + d.site : "") + (d.dosType ? " [" + d.dosType + "]" : "");
+      dl.appendChild(o);
+    });
+    // Quand on choisit un dossier, préremplir client/site
+    numEl.oninput = function() {
+      var chosen = (DB.dossiers||[]).filter(function(d){return d.num===numEl.value;})[0];
+      if (chosen) {
+        document.getElementById("mCli").value = chosen.client || "";
+        onMCliChange();
+        setTimeout(function(){
+          document.getElementById("mSite").value = chosen.site || "";
+          if (document.getElementById("mType")) document.getElementById("mType").value = chosen.dosType||"";
+          if (document.getElementById("mTech")) document.getElementById("mTech").value = chosen.dosTech||"";
+          if (document.getElementById("mDesc") && chosen.com) document.getElementById("mDesc").value = chosen.com;
+        }, 60);
+      }
+    };
+  }
   if (editId) {
     modal.dataset.editId = String(editId);
     if (titleEl) titleEl.textContent = "Modifier la mission";
@@ -1884,6 +1964,10 @@ function ouvrirFicheDepuisMission(missionId) {
   for (var i=0;i<DB.missions.length;i++) { if (DB.missions[i].id===missionId) { mission=DB.missions[i]; break; } }
   if (!mission) return;
   showPage("pg-fiche");
+  // ── Titre dynamique (point 2)
+  var titre = mission.num ? "Dossier " + mission.num : "Prise en compte";
+  document.getElementById("tbTitle").textContent = titre;
+  // ── Préremplir client
   var cliSel = document.getElementById("cliSel");
   if (cliSel) { cliSel.value = mission.client || ""; onClientChange(); }
   setTimeout(function() {
@@ -1897,13 +1981,33 @@ function ouvrirFicheDepuisMission(missionId) {
     if (typeSel && mission.type) { typeSel.value = mission.type; onTypeChange(); }
     var commentF = document.getElementById("commentF");
     if (commentF && mission.desc) { commentF.value = "[Mission: " + mission.desc + "]\n"; }
+    // ── N° dossier automatique et verrouillé (point 3)
+    var refSel = document.getElementById("refSel");
+    if (refSel && mission.num) {
+      // S assurer que le groupe est visible
+      var refGrp = document.getElementById("refGrp");
+      if (refGrp) refGrp.style.display = "block";
+      refSel.value = mission.num;
+      refSel.disabled = true;
+      refSel.style.background = "#f1f5f9";
+      refSel.style.color = "#64748b";
+      refSel.style.cursor = "not-allowed";
+      refSel.dataset.lockedMission = "1";
+    } else if (refSel) {
+      refSel.disabled = false;
+      refSel.style.background = "";
+      refSel.style.color = "";
+      refSel.style.cursor = "";
+      refSel.dataset.lockedMission = "";
+    }
     document.getElementById("pg-fiche").dataset.missionLiee = String(missionId);
     var old = document.getElementById("missionBanner");
     if (old) old.remove();
     var banner = document.createElement("div");
     banner.id = "missionBanner";
     banner.style.cssText = "background:#f0fdf4;border:1.5px solid #16a34a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#15803d;font-weight:600;display:flex;align-items:center;gap:8px";
-    banner.innerHTML = "&#x1F4CB; Mission liee : <span style='font-weight:400;color:#333'>"
+    var dosLabel = mission.num ? ("Dossier " + mission.num) : "Prise en compte";
+    banner.innerHTML = "&#x1F4CB; " + dosLabel + " : <span style='font-weight:400;color:#333'>"
       + mission.client + (mission.site ? " — " + mission.site : "") + "</span>"
       + "<span style='margin-left:auto;font-size:11px;font-weight:400;color:#888'>Completez les heures, etat et observations</span>";
     var firstCard = document.querySelector("#pg-fiche .card");
@@ -1940,6 +2044,219 @@ function deleteMission(id) {
   DB.missions = DB.missions.filter(function(m) { return m.id !== id; });
   renderMissions();
   jbSave();
+}
+
+// ── DOSSIERS ──────────────────────────────────────────
+var DOS_STATUS={"en-attente":"En attente","en-cours":"En cours","termine":"Termine"};
+var DOS_STATUS_CSS={"en-attente":"bg-o","en-cours":"bg-b","termine":"bg-g"};
+
+function canEditDossier() { return curUser && (curUser.role==="admin" || curUser.role==="admin-rh" || curUser.role==="tech"); }
+function canViewDossier() { return curUser && (curUser.role==="admin" || curUser.role==="admin-rh" || curUser.role==="tech"); }
+
+function renderDossiers() {
+  var el = document.getElementById("dossiersList");
+  if (!el) return;
+  // Bouton creation selon role
+  var btnStatic = document.getElementById("btnNewDossierStatic");
+  if (btnStatic) btnStatic.style.display = canEditDossier() ? "" : "none";
+  var dossiers = (DB.dossiers || []).slice();
+  // Filtres
+  var srch = (document.getElementById("dosSearch")||{}).value||"";
+  var stFilter = (document.getElementById("dosFilterStatus")||{}).value||"";
+  if (srch) {
+    var q = srch.toLowerCase();
+    dossiers = dossiers.filter(function(d) {
+      return (d.num||"").toLowerCase().includes(q)
+        || (d.client||"").toLowerCase().includes(q)
+        || (d.site||"").toLowerCase().includes(q)
+        || (d.dosTech||"").toLowerCase().includes(q);
+    });
+  }
+  if (stFilter) dossiers = dossiers.filter(function(d){return (d.status||"en-attente")===stFilter;});
+  el.innerHTML = "";
+  if (!dossiers.length) {
+    el.innerHTML = '<div class="empty"><div style="font-size:32px;margin-bottom:8px">&#x1F4C2;</div><div>Aucun dossier trouve</div></div>';
+    return;
+  }
+  dossiers.forEach(function(d) {
+    var stLabel = DOS_STATUS[d.status||"en-attente"] || d.status || "En attente";
+    var stCss   = DOS_STATUS_CSS[d.status||"en-attente"] || "bg-o";
+    var div = document.createElement("div");
+    div.className = "mi";
+    var btns = "";
+    if (canEditDossier()) {
+      btns += '<button class="btn btn-sm" style="background:var(--g1);color:#fff;margin-bottom:4px" onclick="openDossierModal(' + d.id + ')">&#x270F; Modifier</button>';
+      btns += '<button class="btn btn-danger btn-xs" onclick="deleteDossier(' + d.id + ')">Suppr.</button>';
+    }
+    div.innerHTML = '<div style="flex:1">'  
+      + '<div class="mi-title">Dossier ' + d.num + ' — ' + d.client + (d.site ? " / " + d.site : "") + '</div>'
+      + (d.com ? '<div class="mi-desc">' + d.com + '</div>' : "")
+      + '<div class="mi-meta">'  
+        + '<span class="badge ' + stCss + '">' + stLabel + '</span>'
+        + (d.dosType ? '<span class="badge bg-gray">' + d.dosType + '</span>' : "")
+        + (d.dosTech ? '<span class="badge bg-gray">&#x1F477; ' + d.dosTech + '</span>' : "")
+        + (d.dosResp ? '<span class="badge bg-gray">&#x1F464; ' + d.dosResp + '</span>' : "")
+        + '<span class="badge bg-gray">Par ' + d.createdBy + '</span>'
+      + '</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">' + btns + '</div>';
+    el.appendChild(div);
+  });
+}
+
+function openDossierModal(editId) {
+  if (!canEditDossier() && !(curUser && curUser.role==="tech")) return;
+  var modal = document.getElementById("mDossier");
+  modal.dataset.editId = "";
+  document.getElementById("mDossierTitle").textContent = "Nouveau dossier";
+  document.getElementById("dosSaveBtn").textContent = "Enregistrer le dossier";
+  ["dosNum","dosAdr","dosCom","dosResp"].forEach(function(id){document.getElementById(id).value="";});
+  document.getElementById("dosStatus").value = "en-attente";
+  document.getElementById("dosDate").value = new Date().toISOString().split("T")[0];
+  // Peupler datalist clients
+  var cliEl = document.getElementById("dosCli");
+  if (cliEl) cliEl.value = "";
+  var cliDl = document.getElementById("dosCliList");
+  if (cliDl) {
+    cliDl.innerHTML = "";
+    Object.keys(CLIENTS).forEach(function(c){
+      var o=document.createElement("option"); o.value=c; cliDl.appendChild(o);
+    });
+  }
+  var siteEl = document.getElementById("dosSite");
+  if (siteEl) siteEl.value = "";
+  var siteDl = document.getElementById("dosSiteList");
+  if (siteDl) siteDl.innerHTML = "";
+  // Peupler techniciens
+  var techEl = document.getElementById("dosTech");
+  techEl.innerHTML = '<option value="">-- Non assigne --</option>';
+  (DB.users||[]).filter(function(u){return u.active && u.role==="technicien";}).forEach(function(u){
+    var o=document.createElement("option"); o.value=u.name; o.textContent=u.name; techEl.appendChild(o);
+  });
+  document.getElementById("dosType").value = "";
+  if (editId) {
+    modal.dataset.editId = String(editId);
+    document.getElementById("mDossierTitle").textContent = "Modifier le dossier";
+    document.getElementById("dosSaveBtn").textContent = "Enregistrer les modifications";
+    var d = (DB.dossiers||[]).filter(function(x){return x.id===editId;})[0];
+    if (d) {
+      document.getElementById("dosNum").value = d.num||"";
+      document.getElementById("dosStatus").value = d.status||"en-attente";
+      document.getElementById("dosAdr").value = d.adr||"";
+      document.getElementById("dosCom").value = d.com||"";
+      document.getElementById("dosResp").value = d.dosResp||"";
+      document.getElementById("dosDate").value = d.dosDate||(d.ts||"").split("T")[0]||"";
+      document.getElementById("dosType").value = d.dosType||"";
+      if (cliEl) cliEl.value = d.client||""; onDosCliChange();
+      setTimeout(function(){
+        var sEl = document.getElementById("dosSite"); if(sEl) sEl.value = d.site||"";
+        document.getElementById("dosTech").value = d.dosTech||"";
+      }, 60);
+    }
+  }
+  openM("mDossier");
+}
+
+function onDosCliChange() {
+  var c = document.getElementById("dosCli").value;
+  // Mettre à jour le datalist des sites
+  var dl = document.getElementById("dosSiteList");
+  if (dl) {
+    dl.innerHTML = "";
+    if (c && CLIENTS[c]) {
+      Object.keys(CLIENTS[c]).forEach(function(s){
+        var o=document.createElement("option"); o.value=s; dl.appendChild(o);
+      });
+    }
+  }
+  document.getElementById("dosAdr").value = "";
+}
+
+function onDosSiteChange() {
+  var c = document.getElementById("dosCli").value;
+  var s = document.getElementById("dosSite").value;
+  if (c && s && CLIENTS[c] && CLIENTS[c][s]) {
+    document.getElementById("dosAdr").value = CLIENTS[c][s];
+  }
+  // Aussi essayer sans correspondance exacte de client
+  if (!document.getElementById("dosAdr").value) {
+    Object.keys(CLIENTS).forEach(function(cl){
+      if (CLIENTS[cl][s]) document.getElementById("dosAdr").value = CLIENTS[cl][s];
+    });
+  }
+}
+
+function saveDossier() {
+  var num = document.getElementById("dosNum").value.trim();
+  var cli = document.getElementById("dosCli").value;
+  if (!num || !cli) { alert("Numero et client requis."); return; }
+  if (!DB.dossiers) DB.dossiers = [];
+  if (!DB.dNextId) DB.dNextId = 1;
+  var modal = document.getElementById("mDossier");
+  var editId = modal.dataset.editId ? parseInt(modal.dataset.editId) : 0;
+  var obj = {
+    num:      num,
+    client:   cli,
+    site:     document.getElementById("dosSite").value,
+    adr:      document.getElementById("dosAdr").value,
+    dosType:  document.getElementById("dosType").value,
+    dosResp:  document.getElementById("dosResp").value,
+    dosTech:  document.getElementById("dosTech").value,
+    dosDate:  document.getElementById("dosDate").value,
+    status:   document.getElementById("dosStatus").value,
+    com:      document.getElementById("dosCom").value,
+  };
+  if (editId) {
+    for (var i=0;i<DB.dossiers.length;i++) {
+      if (DB.dossiers[i].id===editId) {
+        Object.assign(DB.dossiers[i], obj);
+        DB.dossiers[i].modifiedBy = curUser.name;
+        DB.dossiers[i].modifiedAt = new Date().toISOString();
+        break;
+      }
+    }
+    modal.dataset.editId = "";
+    lsSet("eiss_cache", JSON.stringify(DB));
+    closeM("mDossier"); renderDossiers();
+    alert("Dossier modifie !"); jbSave();
+    return;
+  }
+  obj.id = DB.dNextId++;
+  obj.createdBy = curUser.name;
+  obj.ts = new Date().toISOString();
+  DB.dossiers.unshift(obj);
+  lsSet("eiss_cache", JSON.stringify(DB));
+  closeM("mDossier"); renderDossiers();
+  alert("Dossier " + num + " cree !"); jbSave();
+}
+
+function deleteDossier(id) {
+  if (!canEditDossier()) return;
+  if (!confirm("Supprimer ce dossier ?")) return;
+  DB.dossiers = (DB.dossiers||[]).filter(function(d){return d.id!==id;});
+  lsSet("eiss_cache", JSON.stringify(DB));
+  renderDossiers(); jbSave();
+}
+
+// Creer une mission depuis un dossier (Responsable Technique)
+function ouvrirMissionDepuisDossier(dossierId) {
+  var d = (DB.dossiers||[]).filter(function(x){return x.id===dossierId;})[0];
+  if (!d) return;
+  showPage("pg-missions");
+  setTimeout(function() {
+    openMissionModal();
+    setTimeout(function() {
+      document.getElementById("mCli").value = d.client||"";
+      onMCliChange();
+      setTimeout(function(){
+        document.getElementById("mSite").value = d.site||"";
+        document.getElementById("mNum").value  = d.num||"";
+        document.getElementById("mDesc").value = d.com||"";
+        if (document.getElementById("mTech")) document.getElementById("mTech").value = d.dosTech||"";
+        if (document.getElementById("mPrio")) document.getElementById("mPrio").value = "normale";
+      }, 60);
+    }, 80);
+  }, 100);
 }
 
 function renderMissions() {
@@ -2189,11 +2506,40 @@ function renderUsers() {
       + '<div style="font-size:13px;font-weight:600">' + u.name + '</div>'
       + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + r.label + ' · @' + u.login + '</div>'
       + '</div>'
-      + (u.id !== curUser.id
-        ? '<button class="btn btn-danger btn-sm" onclick="deleteUser(' + u.id + ')">Supprimer</button>'
-        : '<span class="badge bg-g">Vous</span>');
+      + (curUser.role === "admin" && u.id !== curUser.id
+        ? '<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">'  
+          + '<button class="btn btn-sm" style="background:#3b82f6;color:#fff" onclick="ouvrirChangePwd(' + u.id + ', \"' + u.name + '\")">&#x1F511; Mot de passe</button>'
+          + '<button class="btn btn-danger btn-sm" onclick="deleteUser(' + u.id + ')">Supprimer</button>'
+          + '</div>'
+        : u.id !== curUser.id
+          ? '<button class="btn btn-danger btn-sm" onclick="deleteUser(' + u.id + ')">Supprimer</button>'
+          : '<span class="badge bg-g">Vous</span>');
     el.appendChild(div);
   });
+}
+
+function ouvrirChangePwd(userId, userName) {
+  document.getElementById("newPwd").value = "";
+  document.getElementById("confirmPwd").value = "";
+  document.getElementById("mChangePwd").dataset.userId = String(userId);
+  document.getElementById("mChangePwd").querySelector(".modal-title").textContent = "Mot de passe : " + userName;
+  openM("mChangePwd");
+}
+
+function saveNewPwd() {
+  var np = document.getElementById("newPwd").value;
+  var cp = document.getElementById("confirmPwd").value;
+  if (!np) { alert("Saisissez un nouveau mot de passe."); return; }
+  if (np !== cp) { alert("Les mots de passe ne correspondent pas."); return; }
+  if (np.length < 4) { alert("Mot de passe trop court (4 caracteres minimum)."); return; }
+  var uid = parseInt(document.getElementById("mChangePwd").dataset.userId);
+  for (var i=0; i<DB.users.length; i++) {
+    if (DB.users[i].id === uid) { DB.users[i].pass = np; break; }
+  }
+  lsSet("eiss_cache", JSON.stringify(DB));
+  closeM("mChangePwd");
+  alert("Mot de passe modifie avec succes !");
+  jbSave();
 }
 
 // =====================================================
@@ -2236,5 +2582,70 @@ document.querySelectorAll(".modal-bg").forEach(function(m) {
     </div>
   </div>
 </div>
+<!-- MODAL DOSSIER -->
+<div class="modal-bg" id="mDossier">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-hd"><span class="modal-title" id="mDossierTitle">Nouveau dossier</span><button class="close-btn" onclick="closeM('mDossier')">&#x2715;</button></div>
+    <div class="fg2">
+      <div><label class="flabel">Numero dossier / intervention</label><input type="text" id="dosNum" placeholder="Ex: 65654"/></div>
+      <div><label class="flabel">Statut</label>
+        <select id="dosStatus">
+          <option value="en-attente">En attente</option>
+          <option value="en-cours">En cours</option>
+          <option value="termine">Termine</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg2">
+      <div><label class="flabel">Client</label>
+        <input type="text" id="dosCli" list="dosCliList" placeholder="Selectionner ou saisir..." oninput="onDosCliChange()" autocomplete="off"/>
+        <datalist id="dosCliList"></datalist>
+      </div>
+      <div><label class="flabel">Site / Batiment</label>
+        <input type="text" id="dosSite" list="dosSiteList" placeholder="Selectionner ou saisir..." oninput="onDosSiteChange()" autocomplete="off"/>
+        <datalist id="dosSiteList"></datalist>
+      </div>
+    </div>
+    <div class="fg2">
+      <div><label class="flabel">Adresse</label><input type="text" id="dosAdr" placeholder="Adresse automatique"/></div>
+      <div><label class="flabel">Type intervention</label>
+        <select id="dosType">
+          <option value="">-- Selectionner --</option>
+          <option value="Depannage">Depannage</option>
+          <option value="Travaux">Travaux</option>
+          <option value="Maintenance DSF mecanique">Maintenance DSF mecanique</option>
+          <option value="Maintenance DSF naturel">Maintenance DSF naturel</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg2">
+      <div><label class="flabel">Responsable</label><input type="text" id="dosResp" placeholder="Nom du responsable"/></div>
+      <div><label class="flabel">Technicien assigne</label><select id="dosTech"><option value="">-- Non assigne --</option></select></div>
+    </div>
+    <div class="fg2">
+      <div><label class="flabel">Date creation</label><input type="date" id="dosDate"/></div>
+      <div></div>
+    </div>
+    <div class="fg"><label class="flabel">Observations</label><textarea id="dosCom" placeholder="Observations, informations importantes..." style="min-height:70px"></textarea></div>
+    <div class="flex" style="justify-content:flex-end;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" onclick="closeM('mDossier')">Annuler</button>
+      <button class="btn btn-primary" id="dosSaveBtn" onclick="saveDossier()">Enregistrer le dossier</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL MOT DE PASSE -->
+<div class="modal-bg" id="mChangePwd">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-hd"><span class="modal-title">Modifier le mot de passe</span><button class="close-btn" onclick="closeM('mChangePwd')">&#x2715;</button></div>
+    <div class="fg"><label class="flabel">Nouveau mot de passe</label><input type="password" id="newPwd" placeholder="Nouveau mot de passe"/></div>
+    <div class="fg"><label class="flabel">Confirmer</label><input type="password" id="confirmPwd" placeholder="Confirmer le mot de passe"/></div>
+    <div class="flex" style="justify-content:flex-end;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" onclick="closeM('mChangePwd')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveNewPwd()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
