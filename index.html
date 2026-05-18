@@ -2521,28 +2521,55 @@ function renderUsers() {
     var r = ROLES[u.role] || {label:u.role};
     var div = document.createElement("div");
     div.className = "user-card";
-    div.innerHTML = '<div class="user-av">' + initials + '</div>'
-      + '<div style="flex:1">'
-      + '<div style="font-size:13px;font-weight:600">' + u.name + '</div>'
-      + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + r.label + ' · @' + u.login + '</div>'
-      + '</div>'
-      + (curUser.role === "admin" && u.id !== curUser.id
-        ? '<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">'  
-          + '<button class="btn btn-sm" style="background:#3b82f6;color:#fff" onclick="ouvrirChangePwd(' + u.id + ', \"' + u.name + '\")">&#x1F511; Mot de passe</button>'
-          + '<button class="btn btn-danger btn-sm" onclick="deleteUser(' + u.id + ')">Supprimer</button>'
-          + '</div>'
-        : u.id !== curUser.id
-          ? '<button class="btn btn-danger btn-sm" onclick="deleteUser(' + u.id + ')">Supprimer</button>'
-          : '<span class="badge bg-g">Vous</span>');
+    var actions = "";
+    if (curUser.role === "admin" && u.id !== curUser.id) {
+      var btnPwd = document.createElement("button");
+      btnPwd.className = "btn btn-sm";
+      btnPwd.style.cssText = "background:#3b82f6;color:#fff;margin-bottom:4px";
+      btnPwd.textContent = "🔑 Mot de passe";
+      btnPwd.onclick = (function(uid) { return function() { ouvrirChangePwd(uid); }; })(u.id);
+      var btnDel = document.createElement("button");
+      btnDel.className = "btn btn-danger btn-sm";
+      btnDel.textContent = "Supprimer";
+      btnDel.onclick = (function(uid) { return function() { deleteUser(uid); }; })(u.id);
+      var actDiv = document.createElement("div");
+      actDiv.style.cssText = "display:flex;flex-direction:column;gap:5px;align-items:flex-end";
+      actDiv.appendChild(btnPwd);
+      actDiv.appendChild(btnDel);
+      div.innerHTML = '<div class="user-av">' + initials + '</div>'
+        + '<div style="flex:1">'
+        + '<div style="font-size:13px;font-weight:600">' + u.name + '</div>'
+        + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + r.label + ' · @' + u.login + '</div>'
+        + '</div>';
+      div.appendChild(actDiv);
+    } else if (u.id !== curUser.id) {
+      div.innerHTML = '<div class="user-av">' + initials + '</div>'
+        + '<div style="flex:1">'
+        + '<div style="font-size:13px;font-weight:600">' + u.name + '</div>'
+        + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + r.label + ' · @' + u.login + '</div>'
+        + '</div>'
+        + '<button class="btn btn-danger btn-sm" onclick="deleteUser(' + u.id + ')">Supprimer</button>';
+    } else {
+      div.innerHTML = '<div class="user-av">' + initials + '</div>'
+        + '<div style="flex:1">'
+        + '<div style="font-size:13px;font-weight:600">' + u.name + '</div>'
+        + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + r.label + ' · @' + u.login + '</div>'
+        + '</div>'
+        + '<span class="badge bg-g">Vous</span>';
+    }
     el.appendChild(div);
   });
 }
 
-function ouvrirChangePwd(userId, userName) {
+
+function ouvrirChangePwd(userId) {
+  var u = DB.users.filter(function(x){return x.id===userId;})[0];
+  var userName = u ? u.name : "";
   document.getElementById("newPwd").value = "";
   document.getElementById("confirmPwd").value = "";
   document.getElementById("mChangePwd").dataset.userId = String(userId);
-  document.getElementById("mChangePwd").querySelector(".modal-title").textContent = "Mot de passe : " + userName;
+  var titleEl = document.getElementById("mChangePwd").querySelector(".modal-title");
+  if (titleEl) titleEl.textContent = "Mot de passe : " + userName;
   openM("mChangePwd");
 }
 
@@ -2668,4 +2695,4 @@ document.querySelectorAll(".modal-bg").forEach(function(m) {
 </div>
 
 </body>
-</html>
+</htmlouvrirChangePwd(\' + u.id + \')>
