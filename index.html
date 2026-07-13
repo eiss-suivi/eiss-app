@@ -481,6 +481,7 @@ tr:hover td{background:#fafcff}
                 <option>Travaux</option>
                 <option>Maintenance DSF mecanique</option>
                 <option>Maintenance DSF naturel</option>
+                <option>Maintenance DI</option>
               </select>
             </div>
             <div id="refGrp" style="display:none">
@@ -569,7 +570,7 @@ tr:hover td{background:#fafcff}
           <select id="mFT" onchange="renderMissions()" style="min-width:160px">
             <option value="">Tous types</option>
             <option>Depannage</option><option>Travaux</option>
-            <option>Maintenance DSF mecanique</option><option>Maintenance DSF naturel</option>
+            <option>Maintenance DSF mecanique</option><option>Maintenance DSF naturel</option><option>Maintenance DI</option>
           </select>
           <select id="mFS" onchange="renderMissions()" style="min-width:140px">
             <option value="">Toutes les missions</option>
@@ -601,7 +602,7 @@ tr:hover td{background:#fafcff}
           <select id="fType" onchange="renderHistory()" style="min-width:160px">
             <option value="">Tous types</option>
             <option>Depannage</option><option>Travaux</option>
-            <option>Maintenance DSF mecanique</option><option>Maintenance DSF naturel</option>
+            <option>Maintenance DSF mecanique</option><option>Maintenance DSF naturel</option><option>Maintenance DI</option>
           </select>
           <select id="fStatus" onchange="renderHistory()" style="min-width:150px">
             <option value="">Tous etats</option>
@@ -736,7 +737,7 @@ tr:hover td{background:#fafcff}
       <select id="mType" onchange="onMTypeChange()">
         <option value="">-- Selectionner --</option>
         <option>Depannage</option><option>Travaux</option>
-        <option>Maintenance DSF mecanique</option><option>Maintenance DSF naturel</option>
+        <option>Maintenance DSF mecanique</option><option>Maintenance DSF naturel</option><option>Maintenance DI</option>
       </select>
     </div>
     <div id="mNumGrp" style="display:none">
@@ -818,6 +819,26 @@ function lsGet(k){try{return localStorage.getItem(k);}catch(e){return _mem[k]||n
 var _saveInProgress = false;
 var _saveTimestamp = 0;
 
+// ── FETCH COMPATIBLE ─────────────────────────────────
+// Certains environnements d'apercu interceptent fetch via postMessage et ne
+// savent pas cloner l'AbortSignal ("AbortSignal object could not be cloned").
+// Dans ce cas uniquement, on retente le MEME appel sans le signal.
+// URL, token, methode, corps : strictement inchanges.
+async function eissFetch(url, opts) {
+  try {
+    return await fetch(url, opts);
+  } catch (e) {
+    var msg = (e && e.message) || "";
+    if (opts && opts.signal && (msg.indexOf("cloned") !== -1 || msg.indexOf("clone") !== -1 || e.name === "DataCloneError")) {
+      console.warn("eissFetch: AbortSignal non supporte ici, nouvel essai sans signal");
+      var o2 = {};
+      for (var k in opts) { if (k !== "signal") o2[k] = opts[k]; }
+      return await fetch(url, o2);
+    }
+    throw e;
+  }
+}
+
 async function jbLoad() {
   // Ne pas charger si une sauvegarde est en cours (evite d'ecraser les nouvelles donnees)
   if (_saveInProgress) {
@@ -828,7 +849,7 @@ async function jbLoad() {
   try {
     var ctrl = new AbortController();
     var t = setTimeout(function(){ctrl.abort();}, 12000);
-    var resp = await fetch("https://api.github.com/gists/" + GIST_ID, {
+    var resp = await eissFetch("https://api.github.com/gists/" + GIST_ID, {
       headers: {
         "Authorization": "token " + GH_TOKEN,
         "Accept": "application/vnd.github.v3+json"
@@ -895,7 +916,7 @@ async function jbSave() {
     try {
       var ctrl = new AbortController();
       var t = setTimeout(function(){ctrl.abort();}, 15000);
-      var resp = await fetch("https://api.github.com/gists/" + GIST_ID, {
+      var resp = await eissFetch("https://api.github.com/gists/" + GIST_ID, {
         method: "PATCH",
         headers: {
           "Authorization": "token " + GH_TOKEN,
@@ -1050,7 +1071,8 @@ var TYPE_BADGE = {
   "Depannage": "bg-o",
   "Travaux": "bg-b",
   "Maintenance DSF mecanique": "bg-p",
-  "Maintenance DSF naturel": "bg-g"
+  "Maintenance DSF naturel": "bg-g",
+  "Maintenance DI": "bg-b"
 };
 
 // =====================================================
@@ -2424,7 +2446,7 @@ function renderStats() {
     + '<div class="sc sc-g"><div class="sc-label">Terminees</div><div class="sc-val">' + done + '</div><div class="sc-sub">/ ' + total + '</div></div>'
     + '<div class="sc sc-r"><div class="sc-label">En cours</div><div class="sc-val">' + pending + '</div><div class="sc-sub">Non terminees</div></div>';
 
-  var tc = {"Depannage":0,"Travaux":0,"Maintenance DSF mecanique":0,"Maintenance DSF naturel":0};
+  var tc = {"Depannage":0,"Travaux":0,"Maintenance DSF mecanique":0,"Maintenance DSF naturel":0,"Maintenance DI":0};
   rows.forEach(function(r) { if (tc[r.type] !== undefined) tc[r.type]++; });
   if (chartT) chartT.destroy();
   var ctxT = document.getElementById("chartType").getContext("2d");
@@ -2432,7 +2454,7 @@ function renderStats() {
     type: "doughnut",
     data: {
       labels: Object.keys(tc),
-      datasets: [{data: Object.values(tc), backgroundColor:["#d97706","#2563eb","#7c3aed","#16a34a"], borderWidth:3, borderColor:"#fff"}]
+      datasets: [{data: Object.values(tc), backgroundColor:["#d97706","#2563eb","#7c3aed","#16a34a","#0e7490"], borderWidth:3, borderColor:"#fff"}]
     },
     options: {plugins:{legend:{position:"bottom"}}, responsive:true, cutout:"60%"}
   });
@@ -2662,6 +2684,7 @@ document.querySelectorAll(".modal-bg").forEach(function(m) {
           <option value="Travaux">Travaux</option>
           <option value="Maintenance DSF mecanique">Maintenance DSF mecanique</option>
           <option value="Maintenance DSF naturel">Maintenance DSF naturel</option>
+          <option value="Maintenance DI">Maintenance DI</option>
         </select>
       </div>
     </div>
